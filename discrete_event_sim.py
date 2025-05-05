@@ -1,4 +1,5 @@
 import logging
+import heapq
 
 # TODO: implement the event queue!
 # suggestion: have a look at the heapq library (https://docs.python.org/dev/library/heapq.html)
@@ -15,20 +16,17 @@ class Simulation:
 
         You can call super().__init__() there to call the code here.
         """
-
         self.t = 0  # simulated time
-        # TODO: set up self.events as an empty queue
+        self.events = []  # event queue implemented as a heap
 
     def schedule(self, delay, event):
         """Add an event to the event queue after the required delay."""
-
-        # TODO: add event to the queue at time self.t + delay
+        heapq.heappush(self.events, (self.t + delay, event))
 
     def run(self, max_t=float('inf')):
         """Run the simulation. If max_t is specified, stop it at that time."""
-
-        while ...:  # TODO: as long as the event queue is not empty:
-            t, event = ... # TODO: get the first event from the queue
+        while self.events:  # as long as the event queue is not empty
+            t, event = heapq.heappop(self.events)  # get the first event from the queue
             if t > max_t:
                 break
             self.t = t
@@ -50,5 +48,4 @@ class Event:
 
     def __lt__(self, other):
         """Method needed to break ties with events happening at the same time."""
-
         return id(self) < id(other)
