@@ -4,6 +4,7 @@ import argparse
 import csv
 import collections
 import logging
+import matplotlib.pyplot as plt
 from random import expovariate, sample, seed
 
 from discrete_event_sim import Simulation, Event
@@ -33,7 +34,7 @@ class Queues(Simulation):
     the shortest one.
     """
 
-    def __init__(self, lambd, mu, n, d):
+    def __init__(self, lambd, mu, n, d, plot_interval=1):
         super().__init__()
         self.running = [None] * n  # if not None, the id of the running job (per queue)
         self.queues = [collections.deque() for _ in range(n)]  # FIFO queues of the system
@@ -45,7 +46,9 @@ class Queues(Simulation):
         self.d = d
         self.mu = mu
         self.arrival_rate = lambd * n  # frequency of new jobs is proportional to the number of queues
+        self.plots = []  # Store queue lengths for plotting
         self.schedule(expovariate(lambd), Arrival(0))  # schedule the first arrival
+        self.schedule(0, MonitorQueues(plot_interval))  # schedule monitoring
 
     def schedule_arrival(self, job_id):
         """Schedule the arrival of a new job."""
@@ -64,7 +67,7 @@ class Queues(Simulation):
         # schedule the time of the completion event
         # check `schedule_arrival` for inspiration
         
-        self.schedule(..., ...)
+        self.schedule(expovariate(self.mu), Completion(job_id, queue_index))
 
     def queue_len(self, i):
         """Return the length of the i-th queue.
@@ -90,12 +93,16 @@ class Arrival(Event):
         # implement the following logic:
 
         # if there is no running job in the queue:
+        if sim.running[queue_index] is None:
             # set the incoming one
+            sim.running[queue_index] = self.id
             # schedule its completion
+            sim.schedule_completion(self.id, queue_index)
         # otherwise, put the job into the queue
+        else:
+            sim.queues[queue_index].append(self.id)
         # schedule the arrival of the next job
-
-        # if you are looking for inspiration, check the `Completion` class below
+        sim.schedule_arrival(self.id + 1)
 
 
 class Completion(Event):
@@ -117,48 +124,107 @@ class Completion(Event):
             sim.running[queue_index] = None  # no job is running on the queue
 
 
+class MonitorQueues(Event):
+    """Event for monitoring queue lengths."""
+    def __init__(self, interval=1):
+        self.interval = interval
+
+    def process(self, sim: Queues):
+        # Record queue lengths for plotting
+        for i in range(sim.n):
+            sim.plots.append(sim.queue_len(i))
+        # Schedule next monitoring event
+        sim.schedule(self.interval, self)
+
+
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--lambd', type=float, default=0.7, help="arrival rate")
+    parser.add_argument('--lambd', type=float, default=[0.5, 0.9, 0.95, 0.99], help="arrival rate")
     parser.add_argument('--mu', type=float, default=1, help="service rate")
     parser.add_argument('--max-t', type=float, default=1_000_000, help="maximum time to run the simulation")
-    parser.add_argument('--n', type=int, default=1, help="number of servers")
-    parser.add_argument('--d', type=int, default=1, help="number of queues to sample")
+    parser.add_argument('--n', type=int, default=10, help="number of servers")
+    parser.add_argument('--d', type=int, default=[2, 5, 10], help="number of queues to sample")
     parser.add_argument('--csv', help="CSV file in which to store results")
     parser.add_argument("--seed", help="random seed")
     parser.add_argument("--verbose", action='store_true')
+    parser.add_argument("--plot_interval", type=float, default=1, help="how often to collect data points for the plot")
     args = parser.parse_args()
 
-    params = [getattr(args, column) for column in CSV_COLUMNS[:-1]]
-    # corresponds to params = [args.lambd, args.mu, args.max_t, args.n, args.d]
+    # Convert single values to lists if needed
+    if not isinstance(args.lambd, list):
+        args.lambd = [args.lambd]
+    if not isinstance(args.d, list):
+        args.d = [args.d]
 
-    if any(x <= 0 for x in params):
-        logging.error("lambd, mu, max-t, n and d must all be positive")
-        exit(1)
+    # Check parameters
+    for lambd in args.lambd:
+        if lambd <= 0 or args.mu <= 0 or args.max_t <= 0 or args.n <= 0:
+            logging.error("lambd, mu, max-t, and n must all be positive")
+            exit(1)
+    for d in args.d:
+        if d <= 0 or d > args.n:
+            logging.error("d must be positive and not greater than n")
+            exit(1)
 
     if args.seed:
-        seed(args.seed)  # set a seed to make experiments repeatable
+        seed(args.seed)
     if args.verbose:
-        # output info on stderr
         logging.basicConfig(format='{levelname}:{message}', level=logging.INFO, style='{')
 
-    if args.lambd >= args.mu:
-        logging.warning("The system is unstable: lambda >= mu")
+    plt.figure(figsize=(10, 6))
+    
+    # Run simulation for each d value
+    for d in args.d:
+        print(f"\nRunning simulation with d = {d}")
+        for lambd in args.lambd:
+            if lambd >= args.mu:
+                logging.warning(f"The system is unstable: lambda ({lambd}) >= mu ({args.mu})")
 
-    sim = Queues(args.lambd, args.mu, args.n, args.d)
-    sim.run(args.max_t)
+            sim = Queues(lambd, args.mu, args.n, d, args.plot_interval)
+            sim.run(args.max_t)
 
-    completions = sim.completions
-    W = ((sum(completions.values()) - sum(sim.arrivals[job_id] for job_id in completions))
-         / len(completions))
-    print(f"Average time spent in the system: {W}")
-    if args.mu == 1 and args.lambd != 1:
-        print(f"Theoretical expectation for random server choice (d=1): {1 / (1 - args.lambd)}")
+            completions = sim.completions
+            W = ((sum(completions.values()) - sum(sim.arrivals[job_id] for job_id in completions))
+                 / len(completions))
+            print(f"Lambda: {lambd}")
+            print(f"Choices: {d}")
+            print(f"Average time spent in the system: {W}")
+            if args.mu == 1 and lambd != 1:
+                print(f"Theoretical expectation for random server choice (d=1): {1 / (1 - lambd)}")
 
-    if args.csv is not None:
-        with open(args.csv, 'a', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(params + [W])
+            # Plot results
+            array = []
+            fractions = []
+            indexes = list(range(15))
+            for i in indexes:
+                count = sum(1 for x in sim.plots if x >= i)
+                array.append(count)
+
+            max_value = max(array)
+            fractions = [float(i) / max_value for i in array]
+
+            x_ticks = [2, 4, 6, 8, 10, 12, 14]
+            y_ticks = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+            style = ['solid', 'dashed', 'dashdot', 'dotted']
+            
+            plt.plot(indexes[1:], fractions[1:], 
+                    label=f"d={d}, λ={lambd}", 
+                    linestyle=style[args.lambd.index(lambd) % len(style)])
+
+            if args.csv is not None:
+                with open(args.csv, 'a', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([lambd, args.mu, args.max_t, args.n, d, W])
+
+    plt.title("Queue length distribution for different choices (d)")
+    plt.xlabel("Queue length")
+    plt.ylabel("Fraction of queues with at least that size")
+    plt.ylim(0, 1)
+    plt.legend(loc=0, prop={'size': 8})
+    plt.grid()
+    plt.xticks(x_ticks)
+    plt.yticks(y_ticks)
+    plt.show()
 
 
 if __name__ == '__main__':
