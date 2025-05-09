@@ -138,94 +138,86 @@ class MonitorQueues(Event):
 
 
 def main():
-    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--lambd', type=float, default=[0.5, 0.9, 0.95, 0.99], help="arrival rate")
-    parser.add_argument('--mu', type=float, default=1, help="service rate")
-    parser.add_argument('--max-t', type=float, default=1_000_000, help="maximum time to run the simulation")
-    parser.add_argument('--n', type=int, default=10, help="number of servers")
-    parser.add_argument('--d', type=int, default=[2, 5, 10], help="number of queues to sample")
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--lambd', type=float, default=[0.5,0.9,0.95,0.99])
+    parser.add_argument('--mu', type=float, default=1)
+    parser.add_argument('--max-t', type=float, default=1_000)
+    parser.add_argument('--n', type=int, default=1_000)
+    parser.add_argument('--d', type=int, default=5)
     parser.add_argument('--csv', help="CSV file in which to store results")
     parser.add_argument("--seed", help="random seed")
     parser.add_argument("--verbose", action='store_true')
     parser.add_argument("--plot_interval", type=float, default=1, help="how often to collect data points for the plot")
     args = parser.parse_args()
 
-    # Convert single values to lists if needed
-    if not isinstance(args.lambd, list):
-        args.lambd = [args.lambd]
-    if not isinstance(args.d, list):
-        args.d = [args.d]
+    params = [getattr(args, column) for column in CSV_COLUMNS[:-1]]
+    # corresponds to params = [args.lambd, args.mu, args.max_t, args.n, args.d]
 
-    # Check parameters
-    for lambd in args.lambd:
-        if lambd <= 0 or args.mu <= 0 or args.max_t <= 0 or args.n <= 0:
-            logging.error("lambd, mu, max-t, and n must all be positive")
-            exit(1)
-    for d in args.d:
-        if d <= 0 or d > args.n:
-            logging.error("d must be positive and not greater than n")
-            exit(1)
+    # if any(x <= 0 for x in params):
+    #     logging.error("lambd, mu, max-t, n and d must all be positive")
+    #     exit(1)
 
     if args.seed:
-        seed(args.seed)
+        seed(args.seed)  # set a seed to make experiments repeatable
     if args.verbose:
+        # output info on stderr
         logging.basicConfig(format='{levelname}:{message}', level=logging.INFO, style='{')
 
-    plt.figure(figsize=(10, 6))
-    
-    # Run simulation for each d value
-    for d in args.d:
-        print(f"\nRunning simulation with d = {d}")
-        for lambd in args.lambd:
-            if lambd >= args.mu:
-                logging.warning(f"The system is unstable: lambda ({lambd}) >= mu ({args.mu})")
 
-            sim = Queues(lambd, args.mu, args.n, d, args.plot_interval)
-            sim.run(args.max_t)
 
-            completions = sim.completions
-            W = ((sum(completions.values()) - sum(sim.arrivals[job_id] for job_id in completions))
-                 / len(completions))
-            print(f"Lambda: {lambd}")
-            print(f"Choices: {d}")
-            print(f"Average time spent in the system: {W}")
-            if args.mu == 1 and lambd != 1:
-                print(f"Theoretical expectation for random server choice (d=1): {1 / (1 - lambd)}")
+    for lambd in args.lambd:   
 
-            # Plot results
-            array = []
-            fractions = []
-            indexes = list(range(15))
-            for i in indexes:
-                count = sum(1 for x in sim.plots if x >= i)
-                array.append(count)
+        if lambd >= args.mu:
+            logging.warning("The system is unstable: lambda >= mu") 
 
-            max_value = max(array)
-            fractions = [float(i) / max_value for i in array]
+        sim = Queues(lambd, args.mu, args.n, args.d, args.plot_interval)
+        sim.run(args.max_t)
 
-            x_ticks = [2, 4, 6, 8, 10, 12, 14]
-            y_ticks = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
-            style = ['solid', 'dashed', 'dashdot', 'dotted']
-            
-            plt.plot(indexes[1:], fractions[1:], 
-                    label=f"d={d}, λ={lambd}", 
-                    linestyle=style[args.lambd.index(lambd) % len(style)])
+        completions = sim.completions
+        W = ((sum(completions.values()) - sum(sim.arrivals[job_id] for job_id in completions))
+            / len(completions))
+        print(f"Average time spent in the system: {W}")
+        if args.mu == 1 and lambd != 1:
+            print(f"Theoretical expectation for random server choice (d=1): {1 / (1 - lambd)}")
 
-            if args.csv is not None:
-                with open(args.csv, 'a', newline='') as f:
-                    writer = csv.writer(f)
-                    writer.writerow([lambd, args.mu, args.max_t, args.n, d, W])
+        if args.csv is not None:
+            with open(args.csv, 'a', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(params + [W])
 
-    plt.title("Queue length distribution for different choices (d)")
-    plt.xlabel("Queue length")
-    plt.ylabel("Fraction of queues with at least that size")
-    plt.ylim(0, 1)
-    plt.legend(loc=0, prop={'size': 8})
+
+        # Plot results
+        array = []
+        fractions = []
+        indexes = [i for i in range(0,15)]
+        for i in indexes:
+            count = 0
+            for x in sim.plots:
+                if x >= i:
+                    count += 1
+            array.append(count)
+
+        max_value = max(array)
+        for i in array:
+            fractions.append(float(i) / max_value)
+        
+        x_ticks = [2,4,6,8,10,12,14]
+        y_ticks = [0.0,0.2,0.4,0.6,0.8,1.0]
+        style = ['solid','dashed','dashdot','dotted']
+        
+        plt.plot(indexes[1:], fractions[1:], label=f"λ : {lambd}", linestyle= style[args.lambd.index(lambd)])
+        plt.title(f"{args.d}"+" choices - exponential service times")
+        plt.xlabel("Assignment 1 - Queue lenght")
+        plt.ylabel("Fraction of queues with at least that size")
+      
+    plt.ylim(min(fractions), 1)  
+    plt.legend(loc=0, prop={'size': 6})
     plt.grid()
     plt.xticks(x_ticks)
     plt.yticks(y_ticks)
+
     plt.show()
-
-
+    
+    
 if __name__ == '__main__':
     main()
