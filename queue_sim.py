@@ -143,7 +143,7 @@ def main():
     parser.add_argument('--mu', type=float, default=1)
     parser.add_argument('--max-t', type=float, default=1_000)
     parser.add_argument('--n', type=int, default=1_000)
-    parser.add_argument('--d', type=int, default=5)
+    parser.add_argument('--d', type=int, default=1)
     parser.add_argument('--csv', help="CSV file in which to store results")
     parser.add_argument("--seed", help="random seed")
     parser.add_argument("--verbose", action='store_true')
@@ -205,7 +205,7 @@ def main():
         y_ticks = [0.0,0.2,0.4,0.6,0.8,1.0]
         style = ['solid','dashed','dashdot','dotted']
         
-        plt.plot(indexes[1:], fractions[1:], label=f"λ : {lambd}", linestyle= style[args.lambd.index(lambd)])
+        plt.plot(indexes[1:], fractions[1:], label=f"λ : {lambd}", linestyle=style[args.lambd.index(lambd)])
         plt.title(f"{args.d}"+" choices - exponential service times")
         plt.xlabel("Assignment 1 - Queue lenght")
         plt.ylabel("Fraction of queues with at least that size")
