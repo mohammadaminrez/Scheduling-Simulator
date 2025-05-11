@@ -123,9 +123,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--lambd', type=float, default=[0.5,0.9,0.95,0.99])
     parser.add_argument('--mu', type=float, default=1)
-    parser.add_argument('--max-t', type=float, default=1_000_000)
-    parser.add_argument('--n', type=int, default=1)
-    parser.add_argument('--d', type=int, default=1)
+    parser.add_argument('--max-t', type=float, default=1_000)
+    parser.add_argument('--n', type=int, default=1_000)
+    parser.add_argument('--d', type=int, default=2)
     parser.add_argument('--csv', help="CSV file in which to store results")
     parser.add_argument("--seed", help="random seed")
     parser.add_argument("--verbose", action='store_true')
@@ -133,9 +133,9 @@ def main():
     parser.add_argument("--shape", type=float, default=1, help="shape parameter for Weibull distribution")
     args = parser.parse_args()
 
-    # Get input parameters (excluding 'w' which is the output value)
-    input_params = ['lambd', 'mu', 'max_t', 'n', 'd', 'shape']
-    params = [getattr(args, param) for param in input_params]
+
+    
+    params = [getattr(args, column) for column in CSV_COLUMNS[:-1]]
 
     if args.seed:
         seed(args.seed)  # set a seed to make experiments repeatable
