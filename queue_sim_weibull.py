@@ -5,36 +5,30 @@ import csv
 import collections
 import logging
 import matplotlib.pyplot as plt
-from random import expovariate, sample, seed
+from random import sample, seed
 
 from discrete_event_sim import Simulation, Event
-
-# One possible modification is to use a different distribution for job sizes or and/or interarrival times.
-# Weibull distributions (https://en.wikipedia.org/wiki/Weibull_distribution) are a generalization of the
-# exponential distribution, and can be used to see what happens when values are more uniform (shape > 1,
-# approaching a "bell curve") or less (shape < 1, "heavy tailed" case when most of the work is concentrated
-# on few jobs).
-
-# To use Weibull variates, for a given set of parameter do something like
-# from workloads import weibull_generator
-# gen = weibull_generator(shape, mean)
-#
-# and then call gen() every time you need a random variable
-
+from workloads import weibull_generator
 
 # columns saved in the CSV file
-CSV_COLUMNS = ['lambd', 'mu', 'max_t', 'n', 'd', 'w']
+CSV_COLUMNS = ['lambd', 'mu', 'max_t', 'n', 'd', 'shape', 'w']  # 'w' is the output value
 
 
 class Queues(Simulation):
-    """Simulation of a system with n servers and n queues.
+    """Simulation of a system with n servers and n queues using Weibull distributions.
 
     The system has n servers with one queue each. Jobs arrive at rate lambd and are served at rate mu.
     When a job arrives, according to the supermarket model, it chooses d queues at random and joins
     the shortest one.
+
+    The Weibull distribution is used for both inter-arrival times and service times, with a shape parameter
+    that controls the distribution's behavior:
+    - shape = 1: Same as exponential distribution (memoryless)
+    - shape < 1: Heavy-tailed distribution (few very large jobs, many small ones)
+    - shape > 1: More uniform/bell-shaped distribution
     """
 
-    def __init__(self, lambd, mu, n, d, plot_interval=1):
+    def __init__(self, lambd, mu, n, d, plot_interval=1, shape=1):
         super().__init__()
         self.running = [None] * n  # if not None, the id of the running job (per queue)
         self.queues = [collections.deque() for _ in range(n)]  # FIFO queues of the system
@@ -45,35 +39,29 @@ class Queues(Simulation):
         self.n = n
         self.d = d
         self.mu = mu
+        self.shape = shape  # shape parameter for Weibull distribution
         self.arrival_rate = lambd * n  # frequency of new jobs is proportional to the number of queues
         self.plots = []  # Store queue lengths for plotting
-        self.schedule(expovariate(lambd), Arrival(0))  # schedule the first arrival
+        
+        # Create Weibull generators for arrivals and service times
+        self.arrival_gen = weibull_generator(shape, 1/self.arrival_rate)
+        self.service_gen = weibull_generator(shape, 1/mu)
+        
+        self.schedule(self.arrival_gen(), Arrival(0))  # schedule the first arrival
         self.schedule(0, MonitorQueues(plot_interval))  # schedule monitoring
 
     def schedule_arrival(self, job_id):
-        """Schedule the arrival of a new job."""
+        """Schedule the arrival of a new job using Weibull distribution."""
+        self.schedule(self.arrival_gen(), Arrival(job_id))
 
-        # schedule the arrival following an exponential distribution, to compensate the number of queues the arrival
-        # time should depend also on "n"
-
-        # memoryless behavior results in exponentially distributed times between arrivals (we use `expovariate`)
-        # the rate of arrivals is proportional to the number of queues
-
-        self.schedule(expovariate(self.arrival_rate), Arrival(job_id))
-
-    def schedule_completion(self, job_id, queue_index):  # TODO: complete this method
-        """Schedule the completion of a job."""
-        
-        # schedule the time of the completion event
-        # check `schedule_arrival` for inspiration
-        
-        self.schedule(expovariate(self.mu), Completion(job_id, queue_index))
+    def schedule_completion(self, job_id, queue_index):
+        """Schedule the completion of a job using Weibull distribution."""
+        self.schedule(self.service_gen(), Completion(job_id, queue_index))
 
     def queue_len(self, i):
         """Return the length of the i-th queue.
         
         Notice that the currently running job is counted even if it is not in self.queues[i]."""
-
         return (self.running[i] is not None) + len(self.queues[i])
 
 
@@ -83,22 +71,16 @@ class Arrival(Event):
     def __init__(self, job_id):
         self.id = job_id
 
-    def process(self, sim: Queues):  # TODO: complete this method
+    def process(self, sim: Queues):
         sim.arrivals[self.id] = sim.t  # set the arrival time of the job
         sample_queues = sample(range(sim.n), sim.d)  # sample the id of d queues at random
         queue_index = min(sample_queues, key=sim.queue_len)  # shortest queue among the sampled ones
-        # check the key argument of the min built-in function:
-        # https://docs.python.org/3/library/functions.html#min
 
-        # implement the following logic:
-
-        # if there is no running job in the queue:
         if sim.running[queue_index] is None:
             # set the incoming one
             sim.running[queue_index] = self.id
             # schedule its completion
             sim.schedule_completion(self.id, queue_index)
-        # otherwise, put the job into the queue
         else:
             sim.queues[queue_index].append(self.id)
         # schedule the arrival of the next job
@@ -109,7 +91,7 @@ class Completion(Event):
     """Job completion."""
 
     def __init__(self, job_id, queue_index):
-        self.job_id = job_id  # currently unused, might be useful when extending
+        self.job_id = job_id
         self.queue_index = queue_index
 
     def process(self, sim: Queues):
@@ -148,14 +130,12 @@ def main():
     parser.add_argument("--seed", help="random seed")
     parser.add_argument("--verbose", action='store_true')
     parser.add_argument("--plot_interval", type=float, default=1, help="how often to collect data points for the plot")
+    parser.add_argument("--shape", type=float, default=1, help="shape parameter for Weibull distribution")
     args = parser.parse_args()
 
-    params = [getattr(args, column) for column in CSV_COLUMNS[:-1]]
-    # corresponds to params = [args.lambd, args.mu, args.max_t, args.n, args.d]
-
-    # if any(x <= 0 for x in params):
-    #     logging.error("lambd, mu, max-t, n and d must all be positive")
-    #     exit(1)
+    # Get input parameters (excluding 'w' which is the output value)
+    input_params = ['lambd', 'mu', 'max_t', 'n', 'd', 'shape']
+    params = [getattr(args, param) for param in input_params]
 
     if args.seed:
         seed(args.seed)  # set a seed to make experiments repeatable
@@ -163,28 +143,24 @@ def main():
         # output info on stderr
         logging.basicConfig(format='{levelname}:{message}', level=logging.INFO, style='{')
 
-
-
     for lambd in args.lambd:   
-
         if lambd >= args.mu:
             logging.warning("The system is unstable: lambda >= mu") 
 
-        sim = Queues(lambd, args.mu, args.n, args.d, args.plot_interval)
+        sim = Queues(lambd, args.mu, args.n, args.d, args.plot_interval, args.shape)
         sim.run(args.max_t)
 
         completions = sim.completions
         W = ((sum(completions.values()) - sum(sim.arrivals[job_id] for job_id in completions))
             / len(completions))
         print(f"Average time spent in the system: {W}")
-        if args.mu == 1 and lambd != 1:
+        if args.mu == 1 and lambd != 1 and args.shape == 1:
             print(f"Theoretical expectation for random server choice (d=1): {1 / (1 - lambd)}")
 
         if args.csv is not None:
             with open(args.csv, 'a', newline='') as f:
                 writer = csv.writer(f)
-                writer.writerow(params + [W])
-
+                writer.writerow(params + [W])  # Add W value at the end
 
         # Plot results
         array = []
@@ -206,8 +182,8 @@ def main():
         style = ['solid','dashed','dashdot','dotted']
         
         plt.plot(indexes[1:], fractions[1:], label=f"λ : {lambd}", linestyle=style[args.lambd.index(lambd)])
-        plt.title(f"{args.d}"+" choices - exponential service times")
-        plt.xlabel("Assignment 1 - Queue lenght")
+        plt.title(f"{args.d} choices - Weibull service times (shape={args.shape})")
+        plt.xlabel("Assignment 1 - Queue length")
         plt.ylabel("Fraction of queues with at least that size")
       
     plt.ylim(min(fractions), 1)  
@@ -220,4 +196,4 @@ def main():
     
     
 if __name__ == '__main__':
-    main()
+    main() 
