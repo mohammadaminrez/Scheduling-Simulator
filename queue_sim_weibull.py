@@ -121,16 +121,16 @@ class MonitorQueues(Event):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--lambd', type=float, default=[0.5,0.9,0.95,0.99])
+    parser.add_argument('--lambd', type=float, default=[0.5,0.7,0.9,0.99])  # More gradual increase in load
     parser.add_argument('--mu', type=float, default=1)
-    parser.add_argument('--max-t', type=float, default=1_000)
-    parser.add_argument('--n', type=int, default=1_000)
-    parser.add_argument('--d', type=int, default=2)
+    parser.add_argument('--max-t', type=float, default=1_000_000)  # Longer simulation time
+    parser.add_argument('--n', type=int, default=10)  # Fewer queues
+    parser.add_argument('--d', type=int, default=5)  # More choices
     parser.add_argument('--csv', help="CSV file in which to store results")
     parser.add_argument("--seed", help="random seed")
     parser.add_argument("--verbose", action='store_true')
     parser.add_argument("--plot_interval", type=float, default=1, help="how often to collect data points for the plot")
-    parser.add_argument("--shape", type=float, default=1, help="shape parameter for Weibull distribution")
+    parser.add_argument("--shape", type=float, default=0.5, help="shape parameter for Weibull distribution")  # Default to heavy-tailed
     args = parser.parse_args()
 
 
