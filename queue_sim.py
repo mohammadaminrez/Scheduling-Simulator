@@ -143,7 +143,7 @@ def main():
     parser.add_argument('--mu', type=float, default=1)
     parser.add_argument('--max-t', type=float, default=1_000)
     parser.add_argument('--n', type=int, default=1_000)
-    parser.add_argument('--d', type=int, default=5)
+    parser.add_argument('--d', type=int, default=[1,2,5,10])
     parser.add_argument('--csv', help="CSV file in which to store results")
     parser.add_argument("--seed", help="random seed")
     parser.add_argument("--verbose", action='store_true')
@@ -151,71 +151,67 @@ def main():
     args = parser.parse_args()
 
     params = [getattr(args, column) for column in CSV_COLUMNS[:-1]]
-    # corresponds to params = [args.lambd, args.mu, args.max_t, args.n, args.d]
-
-    # if any(x <= 0 for x in params):
-    #     logging.error("lambd, mu, max-t, n and d must all be positive")
-    #     exit(1)
 
     if args.seed:
-        seed(args.seed)  # set a seed to make experiments repeatable
+        seed(args.seed)
     if args.verbose:
-        # output info on stderr
         logging.basicConfig(format='{levelname}:{message}', level=logging.INFO, style='{')
 
+    # Create a 2x2 grid of subplots
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    axes = axes.flatten()
 
+    for d_idx, d in enumerate(args.d):
+        ax = axes[d_idx]
+        for lambd in args.lambd:
+            if lambd >= args.mu:
+                logging.warning("The system is unstable: lambda >= mu") 
 
-    for lambd in args.lambd:   
+            sim = Queues(lambd, args.mu, args.n, d, args.plot_interval)
+            sim.run(args.max_t)
 
-        if lambd >= args.mu:
-            logging.warning("The system is unstable: lambda >= mu") 
+            completions = sim.completions
+            W = ((sum(completions.values()) - sum(sim.arrivals[job_id] for job_id in completions))
+                / len(completions))
+            print(f"d={d}, λ={lambd}: Average time spent in the system: {W}")
+            if args.mu == 1 and lambd != 1:
+                print(f"Theoretical expectation for random server choice (d=1): {1 / (1 - lambd)}")
 
-        sim = Queues(lambd, args.mu, args.n, args.d, args.plot_interval)
-        sim.run(args.max_t)
+            if args.csv is not None:
+                with open(args.csv, 'a', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([lambd, args.mu, args.max_t, args.n, d, W])
 
-        completions = sim.completions
-        W = ((sum(completions.values()) - sum(sim.arrivals[job_id] for job_id in completions))
-            / len(completions))
-        print(f"Average time spent in the system: {W}")
-        if args.mu == 1 and lambd != 1:
-            print(f"Theoretical expectation for random server choice (d=1): {1 / (1 - lambd)}")
+            # Plot results
+            array = []
+            fractions = []
+            indexes = [i for i in range(0,15)]
+            for i in indexes:
+                count = 0
+                for x in sim.plots:
+                    if x >= i:
+                        count += 1
+                array.append(count)
 
-        if args.csv is not None:
-            with open(args.csv, 'a', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(params + [W])
+            max_value = max(array)
+            for i in array:
+                fractions.append(float(i) / max_value)
+            
+            x_ticks = [2,4,6,8,10,12,14]
+            y_ticks = [0.0,0.2,0.4,0.6,0.8,1.0]
+            style = ['solid','dashed','dashdot','dotted']
+            
+            ax.plot(indexes[1:], fractions[1:], label=f"λ : {lambd}", linestyle=style[args.lambd.index(lambd)])
+            ax.set_title(f"d = {d} choices - exponential service times")
+            ax.set_xlabel("Queue length")
+            ax.set_ylabel("Fraction of queues with at least that size")
+            ax.set_ylim(min(fractions), 1)
+            ax.legend(loc=0, prop={'size': 6})
+            ax.grid(True)
+            ax.set_xticks(x_ticks)
+            ax.set_yticks(y_ticks)
 
-
-        # Plot results
-        array = []
-        fractions = []
-        indexes = [i for i in range(0,15)]
-        for i in indexes:
-            count = 0
-            for x in sim.plots:
-                if x >= i:
-                    count += 1
-            array.append(count)
-
-        max_value = max(array)
-        for i in array:
-            fractions.append(float(i) / max_value)
-        
-        x_ticks = [2,4,6,8,10,12,14]
-        y_ticks = [0.0,0.2,0.4,0.6,0.8,1.0]
-        style = ['solid','dashed','dashdot','dotted']
-        
-        plt.plot(indexes[1:], fractions[1:], label=f"λ : {lambd}", linestyle=style[args.lambd.index(lambd)])
-        plt.title(f"{args.d}"+" choices - exponential service times")
-        plt.xlabel("Assignment 1 - Queue lenght")
-        plt.ylabel("Fraction of queues with at least that size")
-      
-    plt.ylim(min(fractions), 1)  
-    plt.legend(loc=0, prop={'size': 6})
-    plt.grid()
-    plt.xticks(x_ticks)
-    plt.yticks(y_ticks)
-
+    plt.tight_layout()
     plt.show()
     
     
