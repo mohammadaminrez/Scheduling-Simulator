@@ -146,6 +146,7 @@ def main():
 
     for d_idx, d in enumerate(args.d):
         ax = axes[d_idx]
+        print(f"d={d}, shape={args.shape}")
         for lambd in args.lambd:
             if lambd >= args.mu:
                 logging.warning("The system is unstable: lambda >= mu") 
@@ -156,7 +157,8 @@ def main():
             completions = sim.completions
             W = ((sum(completions.values()) - sum(sim.arrivals[job_id] for job_id in completions))
                 / len(completions))
-            print(f"d={d}, λ={lambd}: Average time spent in the system: {W}")
+            
+            print(f"λ={lambd}: Average time spent in the system: {W}")
             if args.mu == 1 and lambd != 1 and args.shape == 1:
                 print(f"Theoretical expectation for random server choice (d=1): {1 / (1 - lambd)}")
 
@@ -185,7 +187,7 @@ def main():
             style = ['solid','dashed','dashdot','dotted']
             
             ax.plot(indexes[1:], fractions[1:], label=f"λ : {lambd}", linestyle=style[args.lambd.index(lambd)])
-            ax.set_title(f"d = {d} choices - Weibull service times (shape={args.shape})")
+            ax.set_title(f"{d} choices - Weibull service times (shape={args.shape}) - FIFO")
             ax.set_xlabel("Queue length")
             ax.set_ylabel("Fraction of queues with at least that size")
             ax.set_ylim(min(fractions), 1)
