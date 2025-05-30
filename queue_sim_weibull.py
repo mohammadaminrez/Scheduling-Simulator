@@ -133,10 +133,10 @@ class MonitorQueues(Event):
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--lambd', type=float, default=[0.5,0.7,0.9,0.99], help="arrival rate")
+    parser.add_argument('--lambd', type=float, default=[0.5,0.9,0.95,0.99], help="arrival rate")
     parser.add_argument('--mu', type=float, default=1, help="service rate", )
-    parser.add_argument('--max-t', type=float, default=1_000_000, help="maximum time to run the simulation")
-    parser.add_argument('--n', type=int, default=1, help="number of servers")
+    parser.add_argument('--max-t', type=float, default=1_000, help="maximum time to run the simulation")
+    parser.add_argument('--n', type=int, default=1_000, help="number of servers")
     parser.add_argument('--d', type=int, default=[1,2,5,10], help="number of queues to sample")
     parser.add_argument('--csv', help="CSV file in which to store results")
     parser.add_argument("--seed", help="random seed")
@@ -157,17 +157,43 @@ def main():
     if args.verbose:
         logging.basicConfig(format='{levelname}:{message}', level=logging.INFO, style='{')
 
+    # Print simulation parameters header
+    print("\n" + "="*80)
+    print("SIMULATION PARAMETERS".center(80))
+    print("="*80)
+    print(f"Number of servers (n): {args.n}")
+    print(f"Maximum simulation time: {args.max_t}")
+    print(f"Service rate (μ): {args.mu}")
+    print(f"Plot interval: {args.plot_interval}")
+    print(f"Weibull shape parameter: {args.shape}")
+    print("\nWeibull Distribution Behavior:")
+    if args.shape == 1:
+        print("- Current shape (1.0): Exponential distribution (memoryless)")
+    elif args.shape < 1:
+        print(f"- Current shape ({args.shape}): Heavy-tailed distribution (few large jobs, many small ones)")
+    else:
+        print(f"- Current shape ({args.shape}): More uniform/bell-shaped distribution")
+    print("="*80 + "\n")
+
     # Create a 2x2 grid of subplots
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    fig.suptitle(f"Weibull Distribution (shape={args.shape}) - FIFO", fontsize=14)
+    fig.suptitle(f"Weibull Distribution FIFO - shape={args.shape} n={args.n} max-t={args.max_t}", fontsize=14)
     axes = axes.flatten()
+
+    # Print results header
+    print("\n" + "="*100)
+    print("SIMULATION RESULTS".center(100))
+    print("="*100)
+    print(f"{'λ':>8} | {'d':>4} | {'Avg Time (W)':>15} | {'Theoretical (d=1)':>20} | {'Status':>10}")
+    print("-"*100)
 
     for d_idx, d in enumerate(args.d):
         ax = axes[d_idx]
-        print(f"d={d}, shape={args.shape}")
         for lambd in args.lambd:
             if lambd >= args.mu:
-                logging.warning("The system is unstable: lambda >= mu") 
+                status = "UNSTABLE"
+            else:
+                status = "STABLE"
 
             sim = Queues(lambd, args.mu, args.n, d, args.plot_interval, args.shape)
             sim.run(args.max_t)
@@ -176,9 +202,12 @@ def main():
             W = ((sum(completions.values()) - sum(sim.arrivals[job_id] for job_id in completions))
                 / len(completions))
             
-            print(f"λ={lambd}: Average time spent in the system: {W}")
+            theoretical = ""
             if args.mu == 1 and lambd != 1 and args.shape == 1:
-                print(f"Theoretical expectation for random server choice (d=1): {1 / (1 - lambd)}")
+                theoretical = f"{1 / (1 - lambd):.2f}"
+
+            # Print results in a table format
+            print(f"{lambd:8.2f} | {d:4d} | {W:15.2f} | {theoretical:>20} | {status:>10}")
 
             if args.csv is not None:
                 with open(args.csv, 'a', newline='') as f:
@@ -214,6 +243,18 @@ def main():
             ax.set_xticks(x_ticks)
             ax.set_yticks(y_ticks)
 
+    print("="*100 + "\n")
+    print("Legend:")
+    print("- λ (lambda): Arrival rate")
+    print("- d: Number of queues sampled")
+    print("- Avg Time (W): Average time spent in the system")
+    print("- Theoretical (d=1): Theoretical expectation for random server choice (only shown when μ=1 and shape=1)")
+    print("- Status: System stability status (STABLE/UNSTABLE)")
+    print("\nNotes:")
+    print("- The system is considered unstable when λ ≥ μ")
+    print("- Theoretical values are only shown for exponential distribution (shape=1)")
+    print("- For other shape values, the theoretical values may differ from the exponential case")
+    
     plt.tight_layout()
     plt.show()
     

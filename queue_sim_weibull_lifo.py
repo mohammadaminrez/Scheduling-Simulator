@@ -131,10 +131,10 @@ class MonitorQueues(Event):
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--lambd', type=float, default=[0.5,0.7,0.9,0.99], help="arrival rate")
+    parser.add_argument('--lambd', type=float, default=[0.5,0.9,0.95,0.99], help="arrival rate")
     parser.add_argument('--mu', type=float, default=1, help="service rate")
-    parser.add_argument('--max-t', type=float, default=1_000_000, help="maximum time to run the simulation")
-    parser.add_argument('--n', type=int, default=1, help="number of servers")
+    parser.add_argument('--max-t', type=float, default=1_000, help="maximum time to run the simulation")
+    parser.add_argument('--n', type=int, default=1_000, help="number of servers")
     parser.add_argument('--d', type=int, default=[1,2,5,10], help="number of queues to sample")
     parser.add_argument('--csv', help="CSV file in which to store results")
     parser.add_argument("--seed", help="random seed")
@@ -157,12 +157,12 @@ def main():
 
     # Create a 2x2 grid of subplots
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    fig.suptitle(f"Weibull Distribution (shape={args.shape}) - LIFO", fontsize=14)
+    fig.suptitle(f"Weibull Distribution LIFO - shape={args.shape} n={args.n} max-t={args.max_t}", fontsize=14)
     axes = axes.flatten()
 
     for d_idx, d in enumerate(args.d):
         ax = axes[d_idx]
-        print(f"d={d}, shape={args.shape}")
+        print(f"shape={args.shape} mu={args.mu} max-t={args.max_t} n={args.n} d={d}")
         for lambd in args.lambd:
             if lambd >= args.mu:
                 logging.warning("The system is unstable: lambda >= mu") 

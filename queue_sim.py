@@ -141,8 +141,8 @@ def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--lambd', type=float, default=[0.5,0.9,0.95,0.99], help="arrival rate")
     parser.add_argument('--mu', type=float, default=1, help="service rate")
-    parser.add_argument('--max-t', type=float, default=1_000_000, help="maximum time to run the simulation")
-    parser.add_argument('--n', type=int, default=10, help="number of servers")
+    parser.add_argument('--max-t', type=float, default=1_000, help="maximum time to run the simulation")
+    parser.add_argument('--n', type=int, default=1_000, help="number of servers")
     parser.add_argument('--d', type=int, default=[1,2,5,10], help="number of queues to sample")
     parser.add_argument('--csv', help="CSV file in which to store results")
     parser.add_argument("--seed", help="random seed")
@@ -163,27 +163,48 @@ def main():
         # output info on stderr
         logging.basicConfig(format='{levelname}:{message}', level=logging.INFO, style='{')
 
+    # Print simulation parameters header
+    print("\n" + "="*80)
+    print("SIMULATION PARAMETERS".center(80))
+    print("="*80)
+    print(f"Number of servers (n): {args.n}")
+    print(f"Maximum simulation time: {args.max_t}")
+    print(f"Service rate (μ): {args.mu}")
+    print(f"Plot interval: {args.plot_interval}")
+    print("="*80 + "\n")
+
     # Create a 2x2 grid of subplots
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    fig.suptitle('Exponential Distribution (Memoryless)', fontsize=14)
+    fig.suptitle(f"Exponential Distribution (Memoryless) - n={args.n} max-t={args.max_t}", fontsize=14)
     axes = axes.flatten()
 
-    for d_idx, d in enumerate(args.d):
-        ax = axes[d_idx]
-        print(f"d={d}")
-        for lambd in args.lambd:
-            if lambd >= args.mu:
-                logging.warning("The system is unstable: lambda >= mu") 
+    # Print results header
+    print("\n" + "="*100)
+    print("SIMULATION RESULTS".center(100))
+    print("="*100)
+    print(f"{'λ':>8} | {'d':>4} | {'Avg Time (W)':>15} | {'Theoretical (d=1)':>20} | {'Status':>10}")
+    print("-"*100)
 
+    for lambd in args.lambd:
+        if lambd >= args.mu:
+            status = "UNSTABLE"
+        else:
+            status = "STABLE"
+
+        for d_idx, d in enumerate(args.d):
             sim = Queues(lambd, args.mu, args.n, d, args.plot_interval)
             sim.run(args.max_t)
 
             completions = sim.completions
             W = ((sum(completions.values()) - sum(sim.arrivals[job_id] for job_id in completions))
                 / len(completions))
-            print(f"λ={lambd}: Average time spent in the system: {W}")
+            
+            theoretical = ""
             if args.mu == 1 and lambd != 1:
-                print(f"Theoretical expectation for random server choice (d=1): {1 / (1 - lambd)}")
+                theoretical = f"{1 / (1 - lambd):.2f}"
+
+            # Print results in a table format
+            print(f"{lambd:8.2f} | {d:4d} | {W:15.2f} | {theoretical:>20} | {status:>10}")
 
             if args.csv is not None:
                 with open(args.csv, 'a', newline='') as f:
@@ -209,6 +230,7 @@ def main():
             y_ticks = [0.0,0.2,0.4,0.6,0.8,1.0]
             style = ['solid','dashed','dashdot','dotted']
             
+            ax = axes[d_idx]
             ax.plot(indexes[1:], fractions[1:], label=f"λ : {lambd}", linestyle=style[args.lambd.index(lambd)])
             ax.set_title(f"{d} choices - exponential service times - FIFO")
             ax.set_xlabel("Queue length")
@@ -219,6 +241,15 @@ def main():
             ax.set_xticks(x_ticks)
             ax.set_yticks(y_ticks)
 
+    print("="*100 + "\n")
+    print("Legend:")
+    print("- λ (lambda): Arrival rate")
+    print("- d: Number of queues sampled")
+    print("- Avg Time (W): Average time spent in the system")
+    print("- Theoretical (d=1): Theoretical expectation for random server choice (only shown when μ=1)")
+    print("- Status: System stability status (STABLE/UNSTABLE)")
+    print("\nNote: The system is considered unstable when λ ≥ μ")
+    
     plt.tight_layout()
     plt.show()
     
