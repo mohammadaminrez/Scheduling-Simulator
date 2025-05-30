@@ -11,7 +11,7 @@ from discrete_event_sim import Simulation, Event
 from workloads import weibull_generator
 
 # columns saved in the CSV file
-CSV_COLUMNS = ['lambd', 'mu', 'max_t', 'n', 'd', 'shape', 'w']  # 'w' is the output value
+CSV_COLUMNS = ['lambd', 'mu', 'max_t', 'n', 'd', 'shape', 'w']
 
 
 class QueuesLIFO(Simulation):
