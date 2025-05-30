@@ -142,7 +142,7 @@ def main():
     parser.add_argument('--lambd', type=float, default=[0.5,0.9,0.95,0.99], help="arrival rate")
     parser.add_argument('--mu', type=float, default=1, help="service rate")
     parser.add_argument('--max-t', type=float, default=1_000_000, help="maximum time to run the simulation")
-    parser.add_argument('--n', type=int, default=1, help="number of servers")
+    parser.add_argument('--n', type=int, default=10, help="number of servers")
     parser.add_argument('--d', type=int, default=[1,2,5,10], help="number of queues to sample")
     parser.add_argument('--csv', help="CSV file in which to store results")
     parser.add_argument("--seed", help="random seed")
@@ -150,7 +150,7 @@ def main():
     parser.add_argument("--plot_interval", type=float, default=1, help="how often to collect data points for the plot")
     args = parser.parse_args()
 
-    # params = [getattr(args, column) for column in CSV_COLUMNS[:-1]]
+    params = [getattr(args, column) for column in CSV_COLUMNS[:-1]]
     # corresponds to params = [args.lambd, args.mu, args.max_t, args.n, args.d]
 
     # if any(x <= 0 for x in params):
