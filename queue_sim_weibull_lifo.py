@@ -130,12 +130,12 @@ class MonitorQueues(Event):
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--lambd', type=float, default=[0.5,0.7,0.9,0.99])
-    parser.add_argument('--mu', type=float, default=1)
-    parser.add_argument('--max-t', type=float, default=1_000)
-    parser.add_argument('--n', type=int, default=1_000)
-    parser.add_argument('--d', type=int, default=[1,2,5,10])
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--lambd', type=float, default=[0.5,0.7,0.9,0.99], help="arrival rate")
+    parser.add_argument('--mu', type=float, default=1, help="service rate")
+    parser.add_argument('--max-t', type=float, default=1_000_000, help="maximum time to run the simulation")
+    parser.add_argument('--n', type=int, default=1, help="number of servers")
+    parser.add_argument('--d', type=int, default=[1,2,5,10], help="number of queues to sample")
     parser.add_argument('--csv', help="CSV file in which to store results")
     parser.add_argument("--seed", help="random seed")
     parser.add_argument("--verbose", action='store_true')
@@ -143,7 +143,12 @@ def main():
     parser.add_argument("--shape", type=float, default=1, help="shape parameter for Weibull distribution")
     args = parser.parse_args()
 
-    params = [getattr(args, column) for column in CSV_COLUMNS[:-1]]
+    # params = [getattr(args, column) for column in CSV_COLUMNS[:-1]]
+    # corresponds to params = [args.lambd, args.mu, args.max_t, args.n, args.d]
+
+    # if any(x <= 0 for x in params):
+    #     logging.error("lambd, mu, max-t, n and d must all be positive")
+    #     exit(1)
 
     if args.seed:
         seed(args.seed)
@@ -152,6 +157,7 @@ def main():
 
     # Create a 2x2 grid of subplots
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    fig.suptitle(f"Weibull Distribution (shape={args.shape}) - LIFO", fontsize=14)
     axes = axes.flatten()
 
     for d_idx, d in enumerate(args.d):
