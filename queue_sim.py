@@ -8,22 +8,10 @@ import matplotlib.pyplot as plt
 from random import expovariate, sample, seed
 
 from discrete_event_sim import Simulation, Event
-
-# One possible modification is to use a different distribution for job sizes or and/or interarrival times.
-# Weibull distributions (https://en.wikipedia.org/wiki/Weibull_distribution) are a generalization of the
-# exponential distribution, and can be used to see what happens when values are more uniform (shape > 1,
-# approaching a "bell curve") or less (shape < 1, "heavy tailed" case when most of the work is concentrated
-# on few jobs).
-
-# To use Weibull variates, for a given set of parameter do something like
-# from workloads import weibull_generator
-# gen = weibull_generator(shape, mean)
-#
-# and then call gen() every time you need a random variable
-
+from workloads import weibull_generator
 
 # columns saved in the CSV file
-CSV_COLUMNS = ['lambd', 'mu', 'max_t', 'n', 'd', 'w']
+CSV_COLUMNS = ['lambd', 'mu', 'max_t', 'n', 'd', 'shape', 'queue_policy', 'distribution', 'w']
 
 
 class Queues(Simulation):
@@ -32,48 +20,62 @@ class Queues(Simulation):
     The system has n servers with one queue each. Jobs arrive at rate lambd and are served at rate mu.
     When a job arrives, according to the supermarket model, it chooses d queues at random and joins
     the shortest one.
+
+    Features:
+    - Queue Policy: FIFO (First In First Out) or LIFO (Last In First Out) with preemption
+    - Distribution: Exponential (memoryless) or Weibull distribution
+        - Weibull shape = 1: Same as exponential distribution
+        - Weibull shape < 1: Heavy-tailed distribution
+        - Weibull shape > 1: More uniform/bell-shaped distribution
     """
 
-    def __init__(self, lambd, mu, n, d, plot_interval=1):
+    def __init__(self, lambd, mu, n, d, queue_policy='fifo', distribution='exponential', 
+                 plot_interval=1, shape=1):
         super().__init__()
         self.running = [None] * n  # if not None, the id of the running job (per queue)
-        self.queues = [collections.deque() for _ in range(n)]  # FIFO queues of the system
-        # NOTE: we don't keep the running jobs in self.queues
+        self.queues = [collections.deque() for _ in range(n)]  # queues of the system
         self.arrivals = {}  # dictionary mapping job id to arrival time
         self.completions = {}  # dictionary mapping job id to completion time
+        self.remaining_time = {}  # dictionary mapping job id to remaining service time (for LIFO)
         self.lambd = lambd
         self.n = n
         self.d = d
         self.mu = mu
+        self.queue_policy = queue_policy.lower()
+        self.distribution = distribution.lower()
+        self.shape = shape
         self.arrival_rate = lambd * n  # frequency of new jobs is proportional to the number of queues
         self.plots = []  # Store queue lengths for plotting
-        self.schedule(expovariate(lambd), Arrival(0))  # schedule the first arrival
-        self.schedule(0, MonitorQueues(plot_interval))  # schedule monitoring
+        
+        # Set up distribution generators
+        if self.distribution == 'weibull':
+            self.arrival_gen = weibull_generator(shape, 1/self.arrival_rate)
+            self.service_gen = weibull_generator(shape, 1/mu)
+            self.schedule(self.arrival_gen(), Arrival(0))
+        else:  # exponential
+            self.schedule(expovariate(self.arrival_rate), Arrival(0))
+            
+        self.schedule(0, MonitorQueues(plot_interval))
 
     def schedule_arrival(self, job_id):
         """Schedule the arrival of a new job."""
+        if self.distribution == 'weibull':
+            self.schedule(self.arrival_gen(), Arrival(job_id))
+        else:  # exponential
+            self.schedule(expovariate(self.arrival_rate), Arrival(job_id))
 
-        # schedule the arrival following an exponential distribution, to compensate the number of queues the arrival
-        # time should depend also on "n"
-
-        # memoryless behavior results in exponentially distributed times between arrivals (we use `expovariate`)
-        # the rate of arrivals is proportional to the number of queues
-
-        self.schedule(expovariate(self.arrival_rate), Arrival(job_id))
-
-    def schedule_completion(self, job_id, queue_index):  # TODO: complete this method
+    def schedule_completion(self, job_id, queue_index):
         """Schedule the completion of a job."""
-        
-        # schedule the time of the completion event
-        # check `schedule_arrival` for inspiration
-        
-        self.schedule(expovariate(self.mu), Completion(job_id, queue_index))
+        if self.distribution == 'weibull':
+            if self.queue_policy == 'lifo' and job_id in self.remaining_time:
+                self.schedule(self.remaining_time[job_id], Completion(job_id, queue_index))
+            else:
+                self.schedule(self.service_gen(), Completion(job_id, queue_index))
+        else:  # exponential
+            self.schedule(expovariate(self.mu), Completion(job_id, queue_index))
 
     def queue_len(self, i):
-        """Return the length of the i-th queue.
-        
-        Notice that the currently running job is counted even if it is not in self.queues[i]."""
-
+        """Return the length of the i-th queue."""
         return (self.running[i] is not None) + len(self.queues[i])
 
 
@@ -83,24 +85,31 @@ class Arrival(Event):
     def __init__(self, job_id):
         self.id = job_id
 
-    def process(self, sim: Queues):  # TODO: complete this method
+    def process(self, sim: Queues):
         sim.arrivals[self.id] = sim.t  # set the arrival time of the job
         sample_queues = sample(range(sim.n), sim.d)  # sample the id of d queues at random
         queue_index = min(sample_queues, key=sim.queue_len)  # shortest queue among the sampled ones
-        # check the key argument of the min built-in function:
-        # https://docs.python.org/3/library/functions.html#min
 
-        # implement the following logic:
-
-        # if there is no running job in the queue:
-        if sim.running[queue_index] is None:
-            # set the incoming one
+        if sim.queue_policy == 'lifo':
+            if sim.running[queue_index] is not None:
+                # Preempt the currently running job
+                preempted_job = sim.running[queue_index]
+                # Calculate remaining time for preempted job
+                if sim.distribution == 'weibull':
+                    if preempted_job in sim.remaining_time:
+                        sim.remaining_time[preempted_job] -= (sim.t - sim.arrivals[preempted_job])
+                sim.queues[queue_index].appendleft(preempted_job)  # Add to front of queue (LIFO)
+            
+            # Set the new job as running
             sim.running[queue_index] = self.id
-            # schedule its completion
             sim.schedule_completion(self.id, queue_index)
-        # otherwise, put the job into the queue
-        else:
-            sim.queues[queue_index].append(self.id)
+        else:  # fifo
+            if sim.running[queue_index] is None:
+                sim.running[queue_index] = self.id
+                sim.schedule_completion(self.id, queue_index)
+            else:
+                sim.queues[queue_index].append(self.id)
+        
         # schedule the arrival of the next job
         sim.schedule_arrival(self.id + 1)
 
@@ -109,11 +118,14 @@ class Completion(Event):
     """Job completion."""
 
     def __init__(self, job_id, queue_index):
-        self.job_id = job_id  # currently unused, might be useful when extending
+        self.job_id = job_id
         self.queue_index = queue_index
 
     def process(self, sim: Queues):
         queue_index = self.queue_index
+        if sim.queue_policy == 'lifo' and sim.running[queue_index] != self.job_id:
+            return  # Job was preempted, ignore this completion event
+            
         assert sim.running[queue_index] == self.job_id  # the job must be the one running
         sim.completions[self.job_id] = sim.t
         queue = sim.queues[queue_index]
@@ -148,19 +160,17 @@ def main():
     parser.add_argument("--seed", help="random seed")
     parser.add_argument("--verbose", action='store_true')
     parser.add_argument("--plot_interval", type=float, default=1, help="how often to collect data points for the plot")
+    parser.add_argument("--queue-policy", choices=['fifo', 'lifo'], default='fifo',
+                       help="queue policy: FIFO (First In First Out) or LIFO (Last In First Out) with preemption")
+    parser.add_argument("--distribution", choices=['exponential', 'weibull'], default='exponential',
+                       help="distribution type for arrival and service times")
+    parser.add_argument("--shape", type=float, default=1,
+                       help="shape parameter for Weibull distribution (only used when distribution=weibull)")
     args = parser.parse_args()
 
-    params = [getattr(args, column) for column in CSV_COLUMNS[:-1]]
-    # corresponds to params = [args.lambd, args.mu, args.max_t, args.n, args.d]
-
-    # if any(x <= 0 for x in params):
-    #     logging.error("lambd, mu, max-t, n and d must all be positive")
-    #     exit(1)
-
     if args.seed:
-        seed(args.seed)     # set a seed to make experiments repeatable
+        seed(args.seed)
     if args.verbose:
-        # output info on stderr
         logging.basicConfig(format='{levelname}:{message}', level=logging.INFO, style='{')
 
     # Print simulation parameters header
@@ -170,12 +180,27 @@ def main():
     print(f"Number of servers (n): {args.n}")
     print(f"Maximum simulation time: {args.max_t}")
     print(f"Service rate (μ): {args.mu}")
+    print(f"Queue policy: {args.queue_policy.upper()}")
+    print(f"Distribution: {args.distribution.capitalize()}")
+    if args.distribution == 'weibull':
+        print(f"Weibull shape parameter: {args.shape}")
+        print("\nWeibull Distribution Behavior:")
+        if args.shape == 1:
+            print("- Current shape (1.0): Exponential distribution (memoryless)")
+        elif args.shape < 1:
+            print(f"- Current shape ({args.shape}): Heavy-tailed distribution (few large jobs, many small ones)")
+        else:
+            print(f"- Current shape ({args.shape}): More uniform/bell-shaped distribution")
     print(f"Plot interval: {args.plot_interval}")
     print("="*80 + "\n")
 
     # Create a 2x2 grid of subplots
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    fig.suptitle(f"Exponential Distribution (Memoryless) - n={args.n} max-t={args.max_t}", fontsize=14)
+    title = f"{args.distribution.capitalize()} Distribution {args.queue_policy.upper()}"
+    if args.distribution == 'weibull':
+        title += f" - shape={args.shape}"
+    title += f" - n={args.n} max-t={args.max_t}"
+    fig.suptitle(title, fontsize=14)
     axes = axes.flatten()
 
     # Print results header
@@ -185,14 +210,16 @@ def main():
     print(f"{'λ':>8} | {'d':>4} | {'Avg Time (W)':>15} | {'Theoretical (d=1)':>20} | {'Status':>10}")
     print("-"*100)
 
-    for lambd in args.lambd:
-        if lambd >= args.mu:
-            status = "UNSTABLE"
-        else:
-            status = "STABLE"
+    for d_idx, d in enumerate(args.d):
+        ax = axes[d_idx]
+        for lambd in args.lambd:
+            if lambd >= args.mu:
+                status = "UNSTABLE"
+            else:
+                status = "STABLE"
 
-        for d_idx, d in enumerate(args.d):
-            sim = Queues(lambd, args.mu, args.n, d, args.plot_interval)
+            sim = Queues(lambd, args.mu, args.n, d, args.queue_policy, args.distribution,
+                        args.plot_interval, args.shape)
             sim.run(args.max_t)
 
             completions = sim.completions
@@ -200,7 +227,8 @@ def main():
                 / len(completions))
             
             theoretical = ""
-            if args.mu == 1 and lambd != 1:
+            if args.mu == 1 and lambd != 1 and (args.distribution == 'exponential' or 
+                                               (args.distribution == 'weibull' and args.shape == 1)):
                 theoretical = f"{1 / (1 - lambd):.2f}"
 
             # Print results in a table format
@@ -209,7 +237,8 @@ def main():
             if args.csv is not None:
                 with open(args.csv, 'a', newline='') as f:
                     writer = csv.writer(f)
-                    writer.writerow([lambd, args.mu, args.max_t, args.n, d, W])
+                    writer.writerow([lambd, args.mu, args.max_t, args.n, d, args.shape,
+                                   args.queue_policy, args.distribution, W])
 
             # Plot results
             array = []
@@ -230,9 +259,8 @@ def main():
             y_ticks = [0.0,0.2,0.4,0.6,0.8,1.0]
             style = ['solid','dashed','dashdot','dotted']
             
-            ax = axes[d_idx]
             ax.plot(indexes[1:], fractions[1:], label=f"λ : {lambd}", linestyle=style[args.lambd.index(lambd)])
-            ax.set_title(f"{d} choices - exponential service times - FIFO")
+            ax.set_title(f"{d} choices - {args.distribution} service times - {args.queue_policy.upper()}")
             ax.set_xlabel("Queue length")
             ax.set_ylabel("Fraction of queues with at least that size")
             ax.set_ylim(min(fractions), 1)
@@ -246,13 +274,17 @@ def main():
     print("- λ (lambda): Arrival rate")
     print("- d: Number of queues sampled")
     print("- Avg Time (W): Average time spent in the system")
-    print("- Theoretical (d=1): Theoretical expectation for random server choice (only shown when μ=1)")
+    print("- Theoretical (d=1): Theoretical expectation for random server choice")
+    print("  (only shown for exponential distribution or Weibull with shape=1)")
     print("- Status: System stability status (STABLE/UNSTABLE)")
-    print("\nNote: The system is considered unstable when λ ≥ μ")
+    print("\nNotes:")
+    print("- The system is considered unstable when λ ≥ μ")
+    print("- Theoretical values are only shown for exponential distribution or Weibull with shape=1")
+    print("- For other Weibull shape values, the theoretical values may differ")
     
     plt.tight_layout()
     plt.show()
     
     
 if __name__ == '__main__':
-    main()
+    main() 
