@@ -173,27 +173,6 @@ def main():
     if args.verbose:
         logging.basicConfig(format='{levelname}:{message}', level=logging.INFO, style='{')
 
-    # Print simulation parameters header
-    print("\n" + "="*80)
-    print("SIMULATION PARAMETERS".center(80))
-    print("="*80)
-    print(f"Number of servers (n): {args.n}")
-    print(f"Maximum simulation time: {args.max_t}")
-    print(f"Service rate (μ): {args.mu}")
-    print(f"Queue policy: {args.queue_policy.upper()}")
-    print(f"Distribution: {args.distribution.capitalize()}")
-    if args.distribution == 'weibull':
-        print(f"Weibull shape parameter: {args.shape}")
-        print("\nWeibull Distribution Behavior:")
-        if args.shape == 1:
-            print("- Current shape (1.0): Exponential distribution (memoryless)")
-        elif args.shape < 1:
-            print(f"- Current shape ({args.shape}): Heavy-tailed distribution (few large jobs, many small ones)")
-        else:
-            print(f"- Current shape ({args.shape}): More uniform/bell-shaped distribution")
-    print(f"Plot interval: {args.plot_interval}")
-    print("="*80 + "\n")
-
     # Create a 2x2 grid of subplots
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
     title = f"{args.distribution.capitalize()} Distribution {args.queue_policy.upper()}"
@@ -204,23 +183,16 @@ def main():
     axes = axes.flatten()
 
     # Print results header
-    print("\n" + "="*100)
-    print("SIMULATION RESULTS".center(100))
-    print("="*100)
-    print(f"{'λ':>8} | {'d':>4} | {'Avg Time (W)':>15} | {'Theoretical (d=1)':>20} | {'Status':>10}")
-    print("-"*100)
+    print(f"{'λ':>8} | {'d':>4} | {'Avg Time (W)':>15} | {'Theoretical (d=1)':>20}")
+    print("-"*70)
 
     for d_idx, d in enumerate(args.d):
         ax = axes[d_idx]
         for lambd in args.lambd:
-            if lambd >= args.mu:
-                status = "UNSTABLE"
-            else:
-                status = "STABLE"
-
             sim = Queues(lambd, args.mu, args.n, d, args.queue_policy, args.distribution,
                         args.plot_interval, args.shape)
             sim.run(args.max_t)
+            
 
             completions = sim.completions
             W = ((sum(completions.values()) - sum(sim.arrivals[job_id] for job_id in completions))
@@ -231,8 +203,8 @@ def main():
                                                (args.distribution == 'weibull' and args.shape == 1)):
                 theoretical = f"{1 / (1 - lambd):.2f}"
 
-            # Print results in a table format
-            print(f"{lambd:8.2f} | {d:4d} | {W:15.2f} | {theoretical:>20} | {status:>10}")
+            # Print results in a table format (without status)
+            print(f"{lambd:8.2f} | {d:4d} | {W:15.2f} | {theoretical:>20}")
 
             if args.csv is not None:
                 with open(args.csv, 'a', newline='') as f:
@@ -269,19 +241,6 @@ def main():
             ax.set_xticks(x_ticks)
             ax.set_yticks(y_ticks)
 
-    print("="*100 + "\n")
-    print("Legend:")
-    print("- λ (lambda): Arrival rate")
-    print("- d: Number of queues sampled")
-    print("- Avg Time (W): Average time spent in the system")
-    print("- Theoretical (d=1): Theoretical expectation for random server choice")
-    print("  (only shown for exponential distribution or Weibull with shape=1)")
-    print("- Status: System stability status (STABLE/UNSTABLE)")
-    print("\nNotes:")
-    print("- The system is considered unstable when λ ≥ μ")
-    print("- Theoretical values are only shown for exponential distribution or Weibull with shape=1")
-    print("- For other Weibull shape values, the theoretical values may differ")
-    
     plt.tight_layout()
     plt.show()
     
