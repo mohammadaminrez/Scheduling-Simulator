@@ -87,31 +87,20 @@ class Arrival(Event):
 
     def process(self, sim: Queues):
         sim.arrivals[self.id] = sim.t  # set the arrival time of the job
-        sample_queues = sample(range(sim.n), sim.d)  # sample the id of d queues at random
-        queue_index = min(sample_queues, key=sim.queue_len)  # shortest queue among the sampled ones
+        sample_queues = sample(range(sim.n), sim.d)  # sample d queues at random
+        queue_index = min(sample_queues, key=sim.queue_len)  # pick the shortest one
 
-        if sim.queue_policy == 'lifo':
-            if sim.running[queue_index] is not None:
-                # Preempt the currently running job
-                preempted_job = sim.running[queue_index]
-                # Calculate remaining time for preempted job
-                if sim.distribution == 'weibull':
-                    if preempted_job in sim.remaining_time:
-                        sim.remaining_time[preempted_job] -= (sim.t - sim.arrivals[preempted_job])
-                sim.queues[queue_index].appendleft(preempted_job)  # Add to front of queue (LIFO)
-            
-            # Set the new job as running
+        if sim.running[queue_index] is None:
+            # Server is idle: run job immediately
             sim.running[queue_index] = self.id
             sim.schedule_completion(self.id, queue_index)
-        else:  # fifo
-            if sim.running[queue_index] is None:
-                sim.running[queue_index] = self.id
-                sim.schedule_completion(self.id, queue_index)
-            else:
-                sim.queues[queue_index].append(self.id)
-        
-        # schedule the arrival of the next job
+        else:
+            # Server is busy: add to queue
+            sim.queues[queue_index].append(self.id)
+
+        # Schedule the next arrival
         sim.schedule_arrival(self.id + 1)
+
 
 
 class Completion(Event):
@@ -123,17 +112,21 @@ class Completion(Event):
 
     def process(self, sim: Queues):
         queue_index = self.queue_index
-        if sim.queue_policy == 'lifo' and sim.running[queue_index] != self.job_id:
-            return  # Job was preempted, ignore this completion event
-            
-        assert sim.running[queue_index] == self.job_id  # the job must be the one running
+
+        assert sim.running[queue_index] == self.job_id  # sanity check
         sim.completions[self.job_id] = sim.t
         queue = sim.queues[queue_index]
+
         if queue:  # queue is not empty
-            sim.running[queue_index] = new_job_id = queue.popleft()  # assign the first job in the queue
-            sim.schedule_completion(new_job_id, queue_index)  # schedule its completion
+            if sim.queue_policy == 'fifo':
+                new_job_id = queue.popleft()
+            else:  # lifo
+                new_job_id = queue.pop()
+            sim.running[queue_index] = new_job_id
+            sim.schedule_completion(new_job_id, queue_index)
         else:
-            sim.running[queue_index] = None  # no job is running on the queue
+            sim.running[queue_index] = None  # no job is running
+
 
 
 class MonitorQueues(Event):
